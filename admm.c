@@ -313,33 +313,32 @@ void admm_weights(struct admm_learn *obs, struct admm_node *node, size_t l) {
 
      gsl_matrix *ZA_t    = gsl_matrix_calloc(A->size2, Z->size2);
      gsl_matrix *AA_t    = gsl_matrix_calloc(A->size2, A->size2);
-     gsl_matrix *tmp_ZA  = gsl_matrix_calloc(ZA_t->size1, ZA_t->size2);
+     gsl_matrix *root_ZA = malloc(0);
      gsl_matrix *root_AA = malloc(0);
 
-     if (node->rank == obs->root)
+     if (node->rank == obs->root) {
+          root_ZA = gsl_matrix_calloc(ZA_t->size1, ZA_t->size2);
           root_AA = gsl_matrix_calloc(AA_t->size1, AA_t->size2);
+     }
 
-     gsl_blas_dgemm(CblasTrans, CblasNoTrans, 1.0, A, Z, 0.0, tmp_ZA);
-
-     MPI_Allreduce(tmp_ZA->data, ZA_t->data,
-                   ZA_t->size1*ZA_t->size2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-     gsl_matrix_free(tmp_ZA);
-
+     gsl_blas_dgemm(CblasTrans, CblasNoTrans, 1.0, A, Z, 0.0, ZA_t);
      /* gsl_blas_dsyrk(CblasLower, CblasTrans, 1.0, A, 0.0, AA_t); */
      gsl_blas_dgemm(CblasTrans, CblasNoTrans, 1.0, A, A, 0.0, AA_t);
-
+     
+     MPI_Reduce(ZA_t->data, root_ZA->data,
+                ZA_t->size1*ZA_t->size2, MPI_DOUBLE, MPI_SUM, obs->root, MPI_COMM_WORLD);
      MPI_Reduce(AA_t->data, root_AA->data,
                 AA_t->size1*AA_t->size2, MPI_DOUBLE, MPI_SUM, obs->root, MPI_COMM_WORLD);
 
      if (node->rank == obs->root) {
           admm_MP_pinv(AA_t, root_AA);
+          gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, AA_t, ZA_t, 0.0, W);
+          
+          gsl_matrix_free(root_ZA);
           gsl_matrix_free(root_AA);
      }
 
-     MPI_Bcast(AA_t->data, AA_t->size1*AA_t->size2, MPI_DOUBLE, obs->root, MPI_COMM_WORLD);
-
-     gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, AA_t, ZA_t, 0.0, W);
+     MPI_Bcast(W->data, W->size1*W->size2, MPI_DOUBLE, obs->root, MPI_COMM_WORLD);
 
      gsl_matrix_free(AA_t);
      gsl_matrix_free(ZA_t);
