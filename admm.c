@@ -311,28 +311,27 @@ void admm_weights(struct admm_learn *obs, struct admm_node *node, size_t l) {
      const gsl_matrix *Z = node->Zs[l];
      gsl_matrix *W = net->layers[l]->W;
 
-     gsl_matrix *ZA_t    = gsl_matrix_calloc(A->size2, Z->size2);
-     gsl_matrix *AA_t    = gsl_matrix_calloc(A->size2, A->size2);
+     gsl_matrix *ZA_t   = gsl_matrix_calloc(A->size2, Z->size2);
+     gsl_matrix *AA_t   = gsl_matrix_calloc(A->size2, A->size2);
      gsl_matrix *tmp_ZA = gsl_matrix_calloc(ZA_t->size1, ZA_t->size2);
      gsl_matrix *tmp_AA = gsl_matrix_calloc(AA_t->size1, AA_t->size2);
 
-     gsl_blas_dgemm(CblasTrans, CblasNoTrans, 1.0, A, Z, 0.0, ZA_t);
-     gsl_blas_dsyrk(CblasLower, CblasTrans, 1.0, A, 0.0, AA_t);
-     /* gsl_blas_dgemm(CblasTrans, CblasNoTrans, 1.0, A, A, 0.0, AA_t); */
+     gsl_blas_dgemm(CblasTrans, CblasNoTrans, 1.0, A, Z, 0.0, tmp_ZA);
+     gsl_blas_dgemm(CblasTrans, CblasNoTrans, 1.0, A, A, 0.0, tmp_AA);
 
-     MPI_Allreduce(ZA_t->data, tmp_ZA->data,
-               	ZA_t->size1*ZA_t->size2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-     MPI_Allreduce(AA_t->data, tmp_AA->data,
-               	AA_t->size1*AA_t->size2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+     MPI_Allreduce(tmp_ZA->data, ZA_t->data,
+                ZA_t->size1*ZA_t->size2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+     MPI_Allreduce(tmp_AA->data, AA_t->data,
+                AA_t->size1*AA_t->size2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-     admm_MP_pinv(AA_t, tmp_AA);
+     admm_MP_pinv(tmp_AA, AA_t);
 
      gsl_matrix_free(tmp_ZA);
-     gsl_matrix_free(tmp_AA);
-
-     gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, AA_t, ZA_t, 0.0, W);
-
      gsl_matrix_free(AA_t);
+
+     gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, tmp_AA, ZA_t, 0.0, W);
+
+     gsl_matrix_free(tmp_AA);
      gsl_matrix_free(ZA_t);
 }
 
