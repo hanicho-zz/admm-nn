@@ -324,13 +324,25 @@ void admm_weights(struct admm_learn *obs, struct admm_node *node, size_t l) {
      MPI_Allreduce(tmp_AA->data, AA_t->data,
 		   AA_t->size1*AA_t->size2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-     admm_MP_pinv(tmp_AA, AA_t);
+     gsl_permutation *p = gsl_permutation_alloc(AA_t->size1);
+     double det;
+     int signum;
+
+     gsl_matrix_memcpy(tmp_AA, AA_t);
+     gsl_permutation_init(p);
+     gsl_linalg_LU_decomp(tmp_AA, p, &signum);
+     det = gsl_linalg_LU_lndet(tmp_AA);
+
+     if (det == GSL_NEGINF) {
+	  admm_MP_pinv(tmp_AA, AA_t);
+	  gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, tmp_AA, ZA_t, 0.0, W);
+     } else {
+     	  gsl_linalg_LU_invert(tmp_AA, p, AA_t);
+     	  gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, AA_t, ZA_t, 0.0, W);
+     }
 
      gsl_matrix_free(tmp_ZA);
      gsl_matrix_free(AA_t);
-
-     gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, tmp_AA, ZA_t, 0.0, W);
-
      gsl_matrix_free(tmp_AA);
      gsl_matrix_free(ZA_t);
 }
@@ -345,7 +357,6 @@ void admm_update(struct admm_learn *obs, struct admm_node *node) {
      assert(Y->size2 == net->layers[net->L-1]->W->size2);
 
      size_t n = X->size1;
-
      double start = MPI_Wtime();
 
      size_t l, i, j;
@@ -430,7 +441,7 @@ void admm_update(struct admm_learn *obs, struct admm_node *node) {
      gsl_matrix *Z = node->Zs[net->L-1];
      gsl_matrix *Lambda = node->lambda;
 
-     admm_weights(obs, node, net->L-1);
+     admm_weights(obs, node, l);
 
      /* Zs */
      struct admm_min_params *params = calloc(1, sizeof(struct admm_min_params));
@@ -544,18 +555,12 @@ void admm_train(struct admm_learn *obs, struct mlp *net,
 
 	  if (node->rank == obs->root &&
 	      obs->it % obs->update == 0) {
-#if ANN_DEBUG
-	       printf("\nUpdating reconstruction error... ");
-#endif
 	       double start = MPI_Wtime();
 	       obs->error = mlp_error(net, Xv, Yv);
 	       obs->cost = mlp_cost(net, Xv, Yv);
 	       double end = MPI_Wtime();
-#if ANN_DEBUG
-	       printf("%f seconds\n", end - start);
 	       admm_learn_print(obs);
 	       fflush(stdout);
-#endif
 	  }
 
 	  if (obs->it % obs->update == 0) {
@@ -568,25 +573,15 @@ void admm_train(struct admm_learn *obs, struct mlp *net,
 	       MPI_Comm_rank(MPI_COMM_WORLD, &id);
 	       MPI_Get_processor_name(processor_name, &processor_name_len);
 
-	       printf("Number_of_processes=%03d, My_rank=%03d, processor_name=%5s\n",
-		      np, id, processor_name);
-
 	       long vmrss_per_process[np];
 	       long vmsize_per_process[np];
 	       get_cluster_memory_usage_kb(vmrss_per_process, vmsize_per_process, obs->root, np);
 
 	       if (id == 0) {
-		    for (int k = 0; k < np; k++) {
-			 printf("Process %03d: VmRSS = %6ld KB, VmSize = %6ld KB\n",
+		    for (int k = 0; k < 2; k++) {
+			 printf("MEMORY %03d: VmRSS=%6ld KB, VmSize=%6ld KB\n",
 				k, vmrss_per_process[k], vmsize_per_process[k]);
 		    }
-	       }
-
-	       long global_vmrss, global_vmsize;
-	       get_global_memory_usage_kb(&global_vmrss, &global_vmsize, np);
-	       if (id == 0) {
-		    printf("Global memory usage: VmRSS = %6ld KB, VmSize = %6ld KB\n",
-			   global_vmrss, global_vmsize);
 	       }
 	  }
      } while (obs->it < obs->maxit);
