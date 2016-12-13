@@ -19,6 +19,9 @@
 #include <gsl/gsl_sf_trig.h>
 #include <gsl/gsl_vector.h>
 
+#include <memory.h>
+#include <unistd.h>
+
 /* #define GSL_IEEE_MODE "extended-precision" */
 /* FLT_EVAL_METHOD 2/0 */
 /* Condition all s and C's using a MACHEPS */
@@ -36,6 +39,42 @@
 
 #define ANN_DEBUG   1
 #define ANN_MACHEPS 1e-15
+
+int get_memory_usage_kb(long* vmrss_kb, long* vmsize_kb) {
+     /* Get the the current process' status file from the proc filesystem */
+     FILE* procfile = fopen("/proc/self/status", "r");
+
+     long to_read = 8192;
+     char buffer[to_read];
+     int read = fread(buffer, sizeof(char), to_read, procfile);
+     fclose(procfile);
+
+     short found_vmrss = 0;
+     short found_vmsize = 0;
+     char* search_result;
+
+     /* Look through proc status contents line by line */
+     char delims[] = "\n";
+     char* line = strtok(buffer, delims);
+
+     while (line != NULL && (found_vmrss == 0 || found_vmsize == 0) ) {
+	  search_result = strstr(line, "VmRSS:");
+	  if (search_result != NULL) {
+	       sscanf(line, "%*s %ld", vmrss_kb);
+	       found_vmrss = 1;
+	  }
+
+	  search_result = strstr(line, "VmSize:");
+	  if (search_result != NULL) {
+	       sscanf(line, "%*s %ld", vmsize_kb);
+	       found_vmsize = 1;
+	  }
+
+	  line = strtok(NULL, delims);
+     }
+
+     return (found_vmrss == 1 && found_vmsize == 1) ? 0 : 1;
+}
 
 double ann_quadratic(const gsl_vector *a, const gsl_vector *y) {
      assert(a->size == y->size);
@@ -71,7 +110,7 @@ double ann_entropy(const gsl_vector *a, const gsl_vector *y) {
           double yv = gsl_vector_get(y, i);
 
           cost += yv * gsl_sf_log(av) +
-            (1.0-yv) * gsl_sf_log(1.0-av);
+	       (1.0-yv) * gsl_sf_log(1.0-av);
      }
 
      cost = -cost;
