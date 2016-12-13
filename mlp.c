@@ -41,8 +41,8 @@ void mlp_layer_init(struct mlp_layer *layer, short activation, size_t x, size_t 
 	  for (j = 0; j < y; j++)
 	       gsl_matrix_set(layer->W, i, j,
 	       		      gsl_ran_flat(rng,
-	       				   -4*(sqrt(6.0) / sqrt(x + y)),
-	       				   4*(sqrt(6.0) / sqrt(x + y))));
+	       				   -(sqrt(6.0) / sqrt(x + y)),
+	       				    (sqrt(6.0) / sqrt(x + y))));
 }
 
 void mlp_layer_free(struct mlp_layer *layer) {
